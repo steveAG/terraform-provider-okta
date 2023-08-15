@@ -2,6 +2,7 @@ package okta
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
@@ -20,6 +21,10 @@ func resourceAppUserBaseSchemaProperty() *schema.Resource {
 			userTypeSchema,
 			userPatternSchema,
 			map[string]*schema.Schema{
+				"app_id": {
+					Type:     schema.TypeString,
+					Required: true,
+				},
 				"master": {
 					Type:     schema.TypeString,
 					Optional: true,
@@ -27,9 +32,17 @@ func resourceAppUserBaseSchemaProperty() *schema.Resource {
 					Description: "SubSchema profile manager, if not set it will inherit its setting.",
 					Default:     "PROFILE_MASTER",
 				},
-				"app_id": {
+				"scope": {
 					Type:     schema.TypeString,
-					Required: true,
+					Optional: true,
+					Default:  "NONE",
+					ForceNew: true, // since the `scope` is read-only attribute, the resource should be recreated
+				},
+				"union": {
+					Type:        schema.TypeBool,
+					Optional:    true,
+					Description: "Allows to assign attribute's group priority",
+					Default:     false,
 				},
 			}),
 		SchemaVersion: 1,
@@ -51,6 +64,12 @@ func resourceAppUserBaseSchemaResourceV0() *schema.Resource {
 		"app_id": {
 			Type:     schema.TypeString,
 			Required: true,
+		},
+		"scope": {
+			Type:     schema.TypeString,
+			Optional: true,
+			Default:  "NONE",
+			ForceNew: true, // since the `scope` is read-only attribute, the resource should be recreated
 		},
 	}, userBaseSchemaSchema)}
 }
@@ -74,6 +93,13 @@ func resourceAppUserBaseSchemaRead(ctx context.Context, d *schema.ResourceData, 
 		return nil
 	}
 	syncBaseUserSchema(d, subschema)
+	if subschema.Union != "" {
+		if subschema.Union == "DISABLE" {
+			_ = d.Set("union", false)
+		} else {
+			_ = d.Set("union", true)
+		}
+	}
 	return nil
 }
 
@@ -112,9 +138,20 @@ func validateAppUserBaseSchema(d *schema.ResourceData) error {
 			return fmt.Errorf("'pattern' property is only allowed to be set for 'login'")
 		}
 		return nil
+	} else {
+		if !d.Get("required").(bool) {
+			return fmt.Errorf("'login' base schema is always required attribute")
+		}
 	}
-	if !d.Get("required").(bool) {
-		return fmt.Errorf("'login' base schema is always required attribute")
+
+	if scope, ok := d.GetOk("scope"); ok {
+		if union, ok := d.GetOk("union"); ok {
+			if scope == "SELF" && union.(bool) {
+				return errors.New("you can not use combine values across groups (union=true) for self scoped " +
+					"attribute (scope=SELF). Either change scope to 'NONE', or use group priority option by setting union to 'false'")
+			}
+		}
 	}
+
 	return nil
 }

@@ -12,12 +12,6 @@ import (
 
 var (
 	userSchemaSchema = map[string]*schema.Schema{
-		"array_type": {
-			Type:        schema.TypeString,
-			Optional:    true,
-			Description: "Subschema array type: string, number, integer, reference. Type field must be an array.",
-			ForceNew:    true,
-		},
 		"array_enum": {
 			Type:        schema.TypeList,
 			Optional:    true,
@@ -42,11 +36,6 @@ var (
 					},
 				},
 			},
-		},
-		"description": {
-			Type:        schema.TypeString,
-			Optional:    true,
-			Description: "Custom Subschema description",
 		},
 		"min_length": {
 			Type:        schema.TypeInt,
@@ -107,6 +96,17 @@ var (
 	}
 
 	userBaseSchemaSchema = map[string]*schema.Schema{
+		"array_type": {
+			Type:        schema.TypeString,
+			Optional:    true,
+			Description: "Subschema array type: string, number, integer, reference. Type field must be an array.",
+			ForceNew:    true,
+		},
+		"description": {
+			Type:        schema.TypeString,
+			Optional:    true,
+			Description: "Subschema description",
+		},
 		"index": {
 			Type:        schema.TypeString,
 			Required:    true,
@@ -198,6 +198,8 @@ func syncBaseUserSchema(d *schema.ResourceData, subschema *sdk.UserSchemaAttribu
 	_ = d.Set("title", subschema.Title)
 	_ = d.Set("type", subschema.Type)
 	_ = d.Set("required", subschema.Required)
+	_ = d.Set("description", subschema.Description)
+	_ = d.Set("scope", subschema.Scope)
 	if subschema.Master != nil {
 		_ = d.Set("master", subschema.Master.Type)
 		if subschema.Master.Type == "OVERRIDE" {
@@ -216,6 +218,9 @@ func syncBaseUserSchema(d *schema.ResourceData, subschema *sdk.UserSchemaAttribu
 	}
 	if subschema.Pattern != nil {
 		_ = d.Set("pattern", &subschema.Pattern)
+	}
+	if subschema.Items != nil {
+		_ = d.Set("array_type", subschema.Items.Type)
 	}
 }
 
@@ -340,9 +345,10 @@ func buildUserCustomSchemaAttribute(d *schema.ResourceData) (*sdk.UserSchemaAttr
 
 func buildUserBaseSchemaAttribute(d *schema.ResourceData) *sdk.UserSchemaAttribute {
 	userSchemaAttribute := &sdk.UserSchemaAttribute{
-		Master: getNullableMaster(d),
-		Title:  d.Get("title").(string),
-		Type:   d.Get("type").(string),
+		Master:      getNullableMaster(d),
+		Title:       d.Get("title").(string),
+		Type:        d.Get("type").(string),
+		Description: d.Get("description").(string),
 		Permissions: []*sdk.UserSchemaAttributePermission{
 			{
 				Action:    d.Get("permissions").(string),
@@ -350,6 +356,7 @@ func buildUserBaseSchemaAttribute(d *schema.ResourceData) *sdk.UserSchemaAttribu
 			},
 		},
 		Required: boolPtr(d.Get("required").(bool)),
+		Scope:    d.Get("scope").(string),
 	}
 	if d.Get("index").(string) == "login" {
 		p, ok := d.GetOk("pattern")
@@ -357,6 +364,18 @@ func buildUserBaseSchemaAttribute(d *schema.ResourceData) *sdk.UserSchemaAttribu
 			userSchemaAttribute.Pattern = stringPtr(p.(string))
 		}
 	}
+	if d.Get("union").(bool) {
+		userSchemaAttribute.Union = "ENABLE"
+	} else {
+		userSchemaAttribute.Union = "DISABLE"
+	}
+
+	if arrayType, ok := d.GetOk("array_type"); ok {
+		userSchemaAttribute.Items = &sdk.UserSchemaAttributeItems{
+			Type: arrayType.(string),
+		}
+	}
+
 	return userSchemaAttribute
 }
 
